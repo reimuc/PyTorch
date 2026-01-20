@@ -1,0 +1,136 @@
+name: Build PyTorch ROCm
+
+on:
+  workflow_dispatch:
+    inputs:
+      rocm_nightly_version:
+        description: 'ROCm SDK nightly version'
+        required: true
+        default: '7.11.0a20260120'
+      pytorch_version:
+        description: 'ROCm pytorch release version'
+        required: true
+        default: "release/2.10"
+
+jobs:
+  build_pytorch_rocm:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python 3.12
+        shell: powershell
+        run: |
+          choco install python --version=3.12.0 -y
+          $env:Path = "C:\Python312;C:\Python312\Scripts;" + $env:Path
+          $pyDir = "C:\Python312"
+          $pyExe = Join-Path $pyDir "python.exe"
+          $py3Exe = Join-Path $pyDir "python3.exe"
+          if (Test-Path $pyExe -PathType Leaf) {
+            if (-not (Test-Path $py3Exe -PathType Leaf)) {
+              New-Item -ItemType SymbolicLink -Path $py3Exe -Target $pyExe -Force | Out-Null
+            }
+          }
+
+      - name: Create venv for PyTorch build
+        shell: powershell
+        run: |
+          cd C:\
+          C:\Python312\python.exe -m venv pytorch_venv
+          . C:\pytorch_venv\Scripts\Activate.ps1
+          python -m pip install --upgrade pip
+          pip install packaging
+
+      - name: Download and install AMD ROCm SDK wheels
+        shell: powershell
+        run: |
+          . C:\pytorch_venv\Scripts\Activate.ps1
+
+          $version = "${{ github.event.inputs.rocm_nightly_version }}"
+          $channel = "v2-staging"
+          $archDir = "gfx103X-dgpu"
+          $baseUrl = "https://rocm.nightlies.amd.com/$channel/$archDir"
+
+          New-Item -ItemType Directory -Path C:\rocm-sdk -Force | Out-Null
+          Set-Location C:\rocm-sdk
+
+          $coreFile   = "rocm_sdk_core-$version-py3-none-win_amd64.whl"
+          $develFile  = "rocm_sdk_devel-$version-py3-none-win_amd64.whl"
+          $libsFile   = "rocm_sdk_libraries_gfx103x_dgpu-$version-py3-none-win_amd64.whl"
+
+          $coreUrl  = "$baseUrl/$coreFile"
+          $develUrl = "$baseUrl/$develFile"
+          $libsUrl  = "$baseUrl/$libsFile"
+
+          Write-Host "Downloading: $coreUrl"
+          Invoke-WebRequest -Uri $coreUrl -OutFile $coreFile
+          Write-Host "Downloading: $develUrl"
+          Invoke-WebRequest -Uri $develUrl -OutFile $develFile
+          Write-Host "Downloading: $libsUrl"
+          Invoke-WebRequest -Uri $libsUrl -OutFile $libsFile
+
+          pip install .\$coreFile
+          pip install .\$develFile
+          pip install .\$libsFile
+
+      - name: Prepare TheRock external_build/pytorch helper
+        shell: powershell
+        run: |
+          . C:\pytorch_venv\Scripts\Activate.ps1
+          cd C:\
+          git clone https://github.com/ROCm/TheRock.git
+          cd C:\TheRock
+          git checkout -q --detach e060adb724b23da94b6913296f828fb56c28e196
+
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python .\build_tools\fetch_sources.py
+
+      - name: Checkout PyTorch / Audio / Vision (ROCm fork)
+        shell: powershell
+        run: |
+          . C:\pytorch_venv\Scripts\Activate.ps1
+          cd C:\TheRock\external_build\pytorch
+
+          $TorchRoot = "C:\pytorch"
+          New-Item -ItemType Directory -Path $TorchRoot -Force | Out-Null
+          $TorchDir  = Join-Path $TorchRoot "pytorch"
+          $AudioDir  = Join-Path $TorchRoot "audio"
+          $VisionDir = Join-Path $TorchRoot "vision"
+
+          $TorchRepoOrigin = "https://github.com/ROCm/pytorch.git"
+          $TorchHashtag    = "${{ github.event.inputs.pytorch_version }}"
+
+          python .\pytorch_torch_repo.py checkout --repo-hashtag $TorchHashtag --gitrepo-origin $TorchRepoOrigin --checkout-dir $TorchDir
+          python .\pytorch_audio_repo.py checkout --require-related-commit --checkout-dir $AudioDir --torch-dir $TorchDir
+          python .\pytorch_vision_repo.py checkout --require-related-commit --checkout-dir $VisionDir --torch-dir $TorchDir
+
+      - name: Build PyTorch ROCm wheels
+        shell: powershell
+        run: |
+          . C:\pytorch_venv\Scripts\Activate.ps1
+          cd C:\TheRock\external_build\pytorch
+
+          $TorchRoot = "C:\pytorch"
+          $TorchDir  = Join-Path $TorchRoot "pytorch"
+          $AudioDir  = Join-Path $TorchRoot "audio"
+          $VisionDir = Join-Path $TorchRoot "vision"
+
+          $OutDir = "C:\pytorch_rocm_out"
+          New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+
+          python .\build_prod_wheels.py build `
+            --pytorch-dir $TorchDir `
+            --pytorch-audio-dir $AudioDir `
+            --pytorch-vision-dir $VisionDir `
+            --output-dir $OutDir `
+            --clean
+
+      - name: Upload PyTorch ROCm wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytorch-rocm-wheels-gfx103X-${{ github.event.inputs.rocm_nightly_version }}-${{ github.event.inputs.pytorch_version }}
+          path: C:\pytorch_rocm_out
