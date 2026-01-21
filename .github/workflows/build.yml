@@ -39,7 +39,7 @@ jobs:
         shell: powershell
         run: |
           python -m pip install --upgrade pip
-          python -m pip install packaging dvc
+          python -m pip install packaging dvc dvc-s3
 
       - name: Download and install AMD ROCm SDK wheels
         shell: powershell
