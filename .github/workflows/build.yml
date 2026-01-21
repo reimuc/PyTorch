@@ -87,6 +87,8 @@ jobs:
 
           python -m pip install -r requirements.txt
           python .\build_tools\fetch_sources.py
+          dir
+          dir external_build\pytorch
 
       - name: Checkout PyTorch / Audio / Vision (ROCm fork)
         shell: powershell
