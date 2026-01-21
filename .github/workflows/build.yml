@@ -87,15 +87,13 @@ jobs:
 
           python -m pip install -r requirements.txt
           python .\build_tools\fetch_sources.py
-          dir
-          dir external_build\pytorch
 
       - name: Checkout PyTorch / Audio / Vision (ROCm fork)
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
-          cd C:\TheRock\external_build\pytorch
+          cd C:\TheRock\external-builds\pytorch
 
           $TorchRoot = "C:\pytorch"
           New-Item -ItemType Directory -Path $TorchRoot -Force | Out-Null
@@ -115,7 +113,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          cd C:\TheRock\external_build\pytorch
+          cd C:\TheRock\external-builds\pytorch
 
           $TorchRoot = "C:\pytorch"
           $TorchDir  = Join-Path $TorchRoot "pytorch"
