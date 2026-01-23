@@ -112,6 +112,11 @@ jobs:
           python .\pytorch_audio_repo.py checkout --require-related-commit --checkout-dir $AudioDir --torch-dir $TorchDir
           python .\pytorch_vision_repo.py checkout --require-related-commit --checkout-dir $VisionDir --torch-dir $TorchDir
 
+      - name: Setup MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
       - name: Build PyTorch ROCm wheels
         shell: powershell
         run: |
